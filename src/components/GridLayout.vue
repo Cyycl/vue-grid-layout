@@ -223,7 +223,7 @@
                 });
             },
             layoutUpdate() {
-                if (this.layout !== undefined) {
+                if (Array.isArray(this.layout) && Array.isArray(this.originalLayout)) {
                     if (this.layout.length !== this.originalLayout.length) {
                         // console.log("### LAYOUT UPDATE!", this.layout.length, this.originalLayout.length);
 
