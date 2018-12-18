@@ -1,6 +1,6 @@
 {
   "name": "ymm-grid-layout",
-  "version": "2.3.3",
+  "version": "2.3.4",
   "description": "A draggable and resizable grid layout, as a Vue component.",
   "keywords": [
     "grid",
@@ -17,8 +17,8 @@
     "url": "https://github.com/Cyycl/vue-grid-layout"
   },
   "author": "Gustavo Santos (ƒ) <gustavo.santos@jbaysolutions.com> (http://www.jbaysolutions.com)",
-  "main": "dist/vue-grid-layout.common.js",
-  "unpkg": "dist/vue-grid-layout.umd.min.js",
+  "main": "dist/ymm-grid-layout.common.js",
+  "unpkg": "dist/ymm-grid-layout.umd.min.js",
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "rimraf dist && vue-cli-service build",
