@@ -20,7 +20,7 @@
     import Vue from 'vue';
     var elementResizeDetectorMaker = require("element-resize-detector");
 
-    import {bottom, compact, getLayoutItem, moveElement, validateLayout, cloneLayout} from '../helpers/utils';
+    import {bottom, compact, getLayoutItem, moveElement, validateLayout, cloneLayout, getAllCollisions} from '../helpers/utils';
     import {getBreakpointFromWidth, getColsFromBreakpoint, findOrGenerateResponsiveLayout} from "../helpers/responsiveUtils";
     //var eventBus = require('./eventBus');
 
@@ -97,6 +97,10 @@
                 type: Object,
                 default: function(){return{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }},
             },
+            preventCollision: {
+                type: Boolean,
+                default: false
+            }
         },
         data: function () {
             return {
@@ -153,35 +157,60 @@
                 this.originalLayout = this.layout;
                 const self = this;
                 this.$nextTick(function() {
-                    if (self.width === null) {
-                        self.onWindowResize();
+                    self.onWindowResize();
 
-                        self.initResponsiveFeatures();
+                    self.initResponsiveFeatures();
 
-                        //self.width = self.$el.offsetWidth;
-                        addWindowEventListener('resize', self.onWindowResize);
-                    }
+                    //self.width = self.$el.offsetWidth;
+                    addWindowEventListener('resize', self.onWindowResize);
+
                     compact(self.layout, self.verticalCompact);
 
                     self.updateHeight();
                     self.$nextTick(function () {
                         this.erd = elementResizeDetectorMaker({
-                            strategy: "scroll" //<- For ultra performance.
+                            strategy: "scroll", //<- For ultra performance.
+                            // See https://github.com/wnr/element-resize-detector/issues/110 about callOnAdd.
+                            callOnAdd: false,
                         });
                         this.erd.listenTo(self.$refs.item, function () {
                             self.onWindowResize();
                         });
                     });
-
-                    self.$emit('layout-ready', self.layout);
                 });
             });
         },
         watch: {
-            width: function () {
+            width: function (newval, oldval) {
+                const self = this;
                 this.$nextTick(function () {
                     //this.$broadcast("updateWidth", this.width);
                     this.eventBus.$emit("updateWidth", this.width);
+                    if (oldval === null) {
+                        /*
+                            If oldval == null is when the width has never been
+                            set before. That only occurs when mouting is
+                            finished, and onWindowResize has been called and
+                            this.width has been changed the first time after it
+                            got set to null in the constructor. It is now time
+                            to issue layout-ready events as the GridItems have
+                            their sizes configured properly.
+
+                            The reason for emitting the layout-ready events on
+                            the next tick is to allow for the newly-emitted
+                            updateWidth event (above) to have reached the
+                            children GridItem-s and had their effect, so we're
+                            sure that they have the final size before we emit
+                            layout-ready (for this GridLayout) and
+                            item-layout-ready (for the GridItem-s).
+
+                            This way any client event handlers can reliably
+                            invistigate stable sizes of GridItem-s.
+                        */
+                        this.$nextTick(() => {
+                            this.$emit('layout-ready', self.layout);
+                        });
+                    }
                     this.updateHeight();
                 });
             },
@@ -206,7 +235,10 @@
                     this.eventBus.$emit("setColNum", this.colNum);
                 }
                 this.onWindowResize();
-            }
+            },
+            maxRows: function() {
+                this.eventBus.$emit("setMaxRows", this.maxRows);
+            },
         },
         methods: {
             layoutUpdate() {
@@ -277,11 +309,8 @@
                     });
                 }
 
-                // set layout element coordinates to dragged position
-                l.x = x;
-                l.y = y;
                 // Move the element to the dragged location.
-                this.layout = moveElement(this.layout, l, x, y, true);
+                this.layout = moveElement(this.layout, l, x, y, true, this.preventCollision);
                 compact(this.layout, this.verticalCompact);
                 // needed because vue can't detect changes on array element properties
                 this.eventBus.$emit("compact");
@@ -289,12 +318,46 @@
                 if (eventName === 'dragend') this.$emit('layout-updated', this.layout);
             },
             resizeEvent: function (eventName, id, x, y, h, w) {
+                let l = getLayoutItem(this.layout, id);
+                //GetLayoutItem sometimes return null object
+                if (l === undefined || l === null){
+                    l = {h:0, w:0}
+                }
+
+                let hasCollisions;
+                if (this.preventCollision) {
+                    const collisions = getAllCollisions(this.layout, { ...l, w, h }).filter(
+                        layoutItem => layoutItem.i !== l.i
+                    );
+                    hasCollisions = collisions.length > 0;
+
+                    // If we're colliding, we need adjust the placeholder.
+                    if (hasCollisions) {
+                        // adjust w && h to maximum allowed space
+                        let leastX = Infinity,
+                        leastY = Infinity;
+                        collisions.forEach(layoutItem => {
+                        if (layoutItem.x > l.x) leastX = Math.min(leastX, layoutItem.x);
+                        if (layoutItem.y > l.y) leastY = Math.min(leastY, layoutItem.y);
+                        });
+
+                        if (Number.isFinite(leastX)) l.w = leastX - l.x;
+                        if (Number.isFinite(leastY)) l.h = leastY - l.y;
+                    }
+                }
+
+                if (!hasCollisions) {
+                    // Set new width and height.
+                    l.w = w;
+                    l.h = h;
+                }
+
                 if (eventName === "resizestart" || eventName === "resizemove") {
                     this.placeholder.i = id;
                     this.placeholder.x = x;
                     this.placeholder.y = y;
-                    this.placeholder.w = w;
-                    this.placeholder.h = h;
+                    this.placeholder.w = l.w;
+                    this.placeholder.h = l.h;
                     this.$nextTick(function() {
                         this.isDragging = true;
                     });
@@ -306,13 +369,6 @@
                         this.isDragging = false;
                     });
                 }
-                let l = getLayoutItem(this.layout, id);
-                //GetLayoutItem sometimes return null object
-                if (l === undefined || l === null){
-                    l = {h:0, w:0}
-                }
-                l.h = h;
-                l.w = w;
 
                 if (this.responsive) this.responsiveGridLayout();
 

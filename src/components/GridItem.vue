@@ -1,7 +1,7 @@
 <template>
     <div ref="item"
          class="vue-grid-item"
-         :class="{ 'vue-resizable' : resizableAndNotStatic, 'static': static, 'resizing' : isResizing, 'vue-draggable-dragging' : isDragging, 'cssTransforms' : useCssTransforms, 'render-rtl' : renderRtl, 'disable-userselect': isDragging, 'no-touch': isAndroid }"
+         :class="classObj"
          :style="style"
     >
         <slot></slot>
@@ -256,6 +256,10 @@
                 self.rowHeight = rowHeight;
             };
 
+            self.setMaxRowsHandler = function (maxRows) {
+                self.maxRows = maxRows;
+            };
+
             self.directionchangeHandler = () => {
                 this.rtl = getDocumentDir() === 'rtl';
                 this.compact();
@@ -270,6 +274,7 @@
             this.eventBus.$on('setDraggable', self.setDraggableHandler);
             this.eventBus.$on('setResizable', self.setResizableHandler);
             this.eventBus.$on('setRowHeight', self.setRowHeightHandler);
+            this.eventBus.$on('setMaxRows', self.setMaxRowsHandler);
             this.eventBus.$on('directionchange', self.directionchangeHandler);
             this.eventBus.$on('setColNum', self.setColNum)
 
@@ -283,9 +288,10 @@
             this.eventBus.$off('setDraggable', self.setDraggableHandler);
             this.eventBus.$off('setResizable', self.setResizableHandler);
             this.eventBus.$off('setRowHeight', self.setRowHeightHandler);
+            this.eventBus.$off('setMaxRows', self.setMaxRowsHandler);
             this.eventBus.$off('directionchange', self.directionchangeHandler);
             this.eventBus.$off('setColNum', self.setColNum);
-            this.interactObj && this.interactObj.unset() // destroy interact intance
+            this.interactObj.unset() // destroy interact intance
         },
         mounted: function () {
             this.cols = this.$parent.colNum;
@@ -325,14 +331,17 @@
             },
             rowHeight: function () {
                 this.createStyle();
+                this.emitContainerResized();
             },
             cols: function () {
                 this.tryMakeResizable();
                 this.createStyle();
+                this.emitContainerResized();
             },
             containerWidth: function () {
                 this.tryMakeResizable();
                 this.createStyle();
+                this.emitContainerResized();
             },
             x: function (newVal) {
                 this.innerX = newVal;
@@ -345,20 +354,49 @@
             h: function (newVal) {
                 this.innerH = newVal
                 this.createStyle();
+                // this.emitContainerResized();
             },
             w: function (newVal) {
                 this.innerW = newVal;
                 this.createStyle();
+                // this.emitContainerResized();
             },
             renderRtl: function () {
                 // console.log("### renderRtl");
                 this.tryMakeResizable();
                 this.createStyle();
+            },
+            minH: function () {
+                this.tryMakeResizable();
+            },
+            maxH: function () {
+                this.tryMakeResizable();
+            },
+            minW: function () {
+                this.tryMakeResizable();
+            },
+            maxW: function () {
+                this.tryMakeResizable();
             }
         },
         computed: {
+            classObj() {
+                return {
+                    'vue-resizable' : this.resizableAndNotStatic,
+                    'static': this.static,
+                    'resizing' : this.isResizing,
+                    'vue-draggable-dragging' : this.isDragging,
+                    'cssTransforms' : this.useCssTransforms,
+                    'render-rtl' : this.renderRtl,
+                    'disable-userselect': this.isDragging,
+                    'no-touch': this.isAndroid && this.draggableOrResizableAndNotStatic
+                }
+            },
             resizableAndNotStatic(){
                 return this.resizable && !this.static;
+            },
+            draggableOrResizableAndNotStatic(){
+                return (this.draggable || this.resizable) && !this.static;
             },
             isAndroid() {
                 return navigator.userAgent.toLowerCase().indexOf("android") !== -1;
@@ -419,7 +457,19 @@
                     }
                 }
                 this.style = style;
-
+            },
+            emitContainerResized() {
+                // this.style has width and height with trailing 'px'. The
+                // resized event is without them
+                let styleProps = {};
+                for (let prop of ['width', 'height']) {
+                    let val = this.style[prop];
+                    let matches = val.match(/^(\d+)px$/);
+                    if (! matches)
+                        return;
+                    styleProps[prop] = matches[1];
+                }
+                this.$emit("container-resized", this.i, this.h, this.w, styleProps.height, styleProps.width);
             },
             handleResize: function (event) {
                 if (this.static) return;
@@ -773,7 +823,7 @@
                     pos.w = 1;
                 }
 
-                // this.lastW = x; // basicly, this is copied from resizehandler, but shouldn't be needed
+                // this.lastW = x; // basically, this is copied from resizehandler, but shouldn't be needed
                 // this.lastH = y;
 
                 if (this.innerW !== pos.w || this.innerH !== pos.h) {
